@@ -1,10 +1,8 @@
-(Notice: Both the URI and the BIP70 methods have a security vulnerability. For more information check issue [#1](https://github.com/Bitwage/address_request/issues/1))
-
-
-# Request for Payment Address (v1 URI Approach)
+# Request for Payment Address
 
 Copied from "Request for Payment Address" by Tim Horton (tim@airbitz.co)
 Modified by Paul Puey (paul@airbitz.co) per 2015-08-31 meeting with John Lindsay & Aaron Voisine
+New modifications and change of spec to optimize QR code density by Paul Puey 2018
 
 ## Motivation
 
@@ -17,57 +15,67 @@ wallet generates a new payment address and returns control back to the payer app
 A Request for Payment Address is a URI which includes a return URI. The request URI is
 launched via the payer application and is handled by the payees preferred wallet application.
 The wallet then generates a payment address and builds a bitcoin URI scheme (BIP 21). The
-wallet then appends the bitcoin URI to the return URI via the addrparameter and then opens
-the new response URI.
+wallet then appends the bitcoin URI to the return URI via a POST addrparameter. The request may 
+also include a callback url if the requestor would like the application to forward the user to
+a callback URL. This is best implemented for buttons that are tapped to launch an app that will 
+service the request and then bounce the user back to the originating app/website.
 
-This specification is based off the x-callback-url specification. The URI must follow the format
-described by RFC 3986. Bitcoin URIs must follow the format described by BIP 21.
-
-### X-Callback-URI Structure
-
-`[scheme]://x-callback-url/[action]?[params…]`
+Bitcoin URIs must follow the format described by BIP 21.
 
 ### URI Structure to Request Payment Address
 
-`bitcoin-ret://x-callback-url/request-address?[params…]`
+`bitcoin-ret://[action]?[params…]`
+`bitcoin-ret://reqaddr?post=https://service.com/1234`
 
-To target specific wallets, `bitcoin-ret` can be replaced by wallet specific URI prefixes such as `airbitz:`, `bread:`, `multibit:`, etc.
+To target specific wallets, `bitcoin-ret` can be replaced by wallet specific URI prefixes such as `edge:`, `bread:`, `multibit:`, etc.
 
 To make altcoin specific address requests, the `bitcoin-ret` prefix can be changed to various altcoin names such as `litecoin-ret:`. Should a specific wallet need to be targetted, the [action] parameter can be changed instead.
 
-Example: `airbitz://x-callback-url/request-litecoin-address?[params…]`
+Example: `edge://reqaddr-litecoin?[params…]`
 
 ### Grammar
 
 #### Payer:
 
-request-uri = `bitcoin-ret://x-callback-url/request-address?` params
+request-uri = `bitcoin-ret://reqaddr?` params
 
 `params = param [ "&" params ]`
 
-`param = [ x-source / x-success / x-error / max-number / otherparam ]`
+`param = [ post / src / callback / maxnum / otherparam ]`
 
-`x-source = "x-source=" *qchar`
+`post = "post=" *qchar`
 
-`x-success = "x-success=" x-success-uri`
+`src = "src=" *qchar`
 
-`x-error = "x-error=" x-error-uri`
+`category = "category=" *qchar`
 
-`x-cancel = "x-cancel=" x-cancel-uri (DO NOT USE. Some security implications)`
+`notes = "notes=" *qchar`
 
-`network = "network=" [main|test]` `main` is assumed if `network=` is omitted and therefore `network=test` should be the only option ever used.
+`callback = "callback=" callback-uri`
 
-`max-number = "max-number=" maximum number of addresses to return to Payer`
+`net = "net=" [main|test]` `main` is assumed if `net=` is omitted and therefore `network=test` should be the only option ever used.
 
-`max-number` is never guaranteed to be returned to Payer but Payee will not exceed `max-number` of addresses to be returned. If omitted, `max-number=1` is assumed. If `max-number=0`, wallet should return as many addresses as it can comfortably handle. Wallet should always return at minimum one address regardless of `max-number` value.
+`maxnum = "maxnum=" maximum number of addresses to return to Payer`
+
+`maxnum` is never guaranteed to be returned to Payer but Payee will not exceed `maxnum` of addresses to be returned. If omitted, `maxnum=1` is assumed. If `max-number=0`, wallet should return as many addresses as it can comfortably handle. Wallet should always return at minimum one address regardless of `max-number` value.
 
 #### Payee:
 
-`response-uri-success = x-success-uri "?address=" bitcoin-uri [ "&" bitcoinparams ]`
+Payee must submit a POST message to the `post` uri with headers
 
-`response-uri-error = x-error-uri [ "?errorMessage=" *qchar ]`
+`Content-Type: application/json`
 
-Multiple addresses may be given by specifying multiple `address=` parameters on the x-success-uri
+and a body of format
+
+```
+  {
+    "source": "Name of Wallet Provider",
+    "addresses": [
+      { "uri": [ Address URI ] },
+      { "uri": [ Address URI ] }
+    ]
+  }
+```
 
 Please see BIP 21 for a definition of qchar​, bitcoinparams, and otherparams.
 
@@ -85,23 +93,19 @@ Wallets are strongly encouraged to require user interaction before sending a res
 
 Success: `https://bitwage.co/user/123`
 
-Error: `https://bitwage.co/user/123/error`
+#### 2. Payer issues a request for a payment address via a `bitcoin-ret:` URI encoding the return URIs. Additional params are included with the URI, in this case `src=` and `category=`.
 
-#### 2. Payer issues a request for a payment address via a `bitcoin-ret:` URI encoding the return URIs. Additional params are included with the URI, in this case `x-source=` and `category=`.
-
-  `bitcoin-ret://x-callback-url/request-address`
+  `bitcoin-ret://reqaddr`
   
-    `?x-success=https%3A%2F%2Fbitwage.co%2Fuser%2F123`
+    `?post=https%3A%2F%2Fbitwage.co%2Fuser%2F123`
   
-    `&x-error=https%3A%2F%2Fbitwage.co%2Fuser%2F123%2ferror`
+    `&src=Bit%20Wage`
   
-    `&x-source=Bit%20Wage`
-  
-    `&max-number=2`
+    `&maxnum=2`
   
     `&category=Income%3ASalary`
 
-#### 3. Payee receives the `bitcoin-ret:` with action of `request-address` and generates two payment address: 
+#### 3. Payee receives the `bitcoin-ret:` with action of `reqaddr` and generates two payment address: 
   `1k5hxxtkjrzQV3Q8oAVdKzVcKEnE4EeSf`
   `1z4lkhgYD5Gjd24gHHR677flkj49gDdRe`
 
@@ -109,37 +113,53 @@ Error: `https://bitwage.co/user/123/error`
   `bitcoin:1k5hxxtkjrzQV3Q8oAVdKzVcKEnE4EeSf`
   `bitcoin:1z4lkhgYD5Gjd24gHHR677flkj49gDdRe`
 
-#### 5. Payee launches the success return URI including the `address=` parameters to the encoded bitcoin URIs. Payee also
-includes a `x­source=` parameter back to the payer.
-`http://bitwage.co/?user=123&x-source=Airbitz&address=bitcoin%3A1k5hxxtkjrzQV3Q8oAVdKzVcKEnE4EeSf&address=bitcoin%3A1z4lkhgYD5Gjd24gHHR677flkj49gDdRe`
+#### 5. Payee send a message to the POST URI including the address URIs in the body. Payee also
+`POST http://bitwage.co/?user=123`
+```
+  {
+    "source": "Edge",
+    "addresses": [
+      { "uri": "bitcoin:1k5hxxtkjrzQV3Q8oAVdKzVcKEnE4EeSf" },
+      { "uri": "bitcoin:1z4lkhgYD5Gjd24gHHR677flkj49gDdRe" }
+    ]
+  }
+```
 
-#### 6. Payer Now can handle the return URI and extract the payment address via the `address=` parameters
+#### 6. Payer Now can handle the return URI and extract the payment address via the body payload
 
 ### Example 2
 
 #### 1. Payer creates a return URI
   Success: `foldapp:request?id=42`
   
-  Error: `foldapp:request/error`
-
-#### 2. Payer issues a request for a payment address via a `bitcoin-ret:` URI, encoding the return URIs.
-  `bitcoin-ret://x-callback-url/request-address`
+#### 2. Payer issues a request for a payment address via a `edge-ret:` URI, encoding the return URIs.
+  `edge-ret://reqaddr-litecoin`
   
-  `?x-success=foldapp%3Arequest%3Fid%3D42`
-
-  `&x-error=foldapp%3Arequest%2Ferror`
-
-  `&x-source=Foldapp`
+  `?post=foldapp%3Arequest%3Fid%3D42`
+  
+  `&src=Foldapp`
 
   `&category=Expense%3ACoffee`
 
   `&notes=Refund`
 
-3. Payee handles the `bitcoin-ret:` URI and generates a payment address
-  `1V8h9kUDXtBEtWwcWRqd5s9A5pxjjdTFy`
+#### 3. Payee handles the `edge-ret:` URI and based on the `reqaddr-litecoin` actions, generates a litecoin address
+  `MV5rN5EcX1imDS2gEh5jPJXeiW5QN8YrK3`
 
-4. Payee constructs a bitcoin URI
-  `bitcoin:1V8h9kUDXtBEtWwcWRqd5s9A5pxjjdTFy&label=Nakamoto`
+#### 4. Payee constructs a litecoin URI
+  `litecoin:MV5rN5EcX1imDS2gEh5jPJXeiW5QN8YrK3`
+
+#### 5. Payee send a message to the POST URI including the address URIs in the body. Payee also
+`POST http://foldapp.com/?user=123`
+```
+  {
+    "source": "Edge",
+    "addresses": [
+      { "uri": "bitcoin:1k5hxxtkjrzQV3Q8oAVdKzVcKEnE4EeSf" },
+      { "uri": "bitcoin:1z4lkhgYD5Gjd24gHHR677flkj49gDdRe" }
+    ]
+  }
+```
 
 5. Payee issues content of `bitcoin-ret` appending a parameter of `address=`
   `foldapp:request?id=42`
